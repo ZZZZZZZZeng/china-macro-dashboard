@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import ReactECharts from 'echarts-for-react'
+import type { EChartsOption } from 'echarts'
 
 interface M2DataPoint {
   date: string
@@ -18,7 +19,7 @@ interface M2Data {
 }
 
 type TimeView = 'year' | 'month'
-type ChartMetric = 'yoy' | 'mom' | 'both'
+type ChartMetric = 'both' | 'yoy' | 'mom'
 
 function App() {
   const [loading, setLoading] = useState(true)
@@ -26,6 +27,11 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<TimeView>('year')
   const [metric, setMetric] = useState<ChartMetric>('both')
+  const [selectedYear, setSelectedYear] = useState<string | null>(null)
+  const chartRef = useRef<any>(null)
+
+  // 防止状态混乱
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
     fetchM2Data()
@@ -51,19 +57,48 @@ function App() {
     }
   }
 
+  // 切换视图时重置状态
+  const handleViewChange = (newView: TimeView) => {
+    if (isTransitioning) return
+    setIsTransitioning(true)
+    
+    // 先重置相关状态
+    if (newView === 'year') {
+      setSelectedYear(null)
+      setMetric('both')
+    }
+    
+    setView(newView)
+    
+    setTimeout(() => {
+      setIsTransitioning(false)
+    }, 100)
+  }
+
+  // 点击年度柱子跳转到该年月度数据
+  const handleYearClick = (year: string) => {
+    if (isTransitioning) return
+    setSelectedYear(year)
+    setView('month')
+    setMetric('both')
+  }
+
   const processedData = useMemo(() => {
-    if (!m2Data) return { yearlyData: [], years: [] }
+    if (!m2Data) return { yearlyData: [], years: [], monthlyByYear: {} }
 
     const yearlyMap = new Map<string, { values: number[], momValues: number[], dates: string[] }>()
+    const monthlyByYear: Record<string, M2DataPoint[]> = {}
 
     m2Data.data.forEach(item => {
       const year = item.date.split('-')[0]
       if (!yearlyMap.has(year)) {
         yearlyMap.set(year, { values: [], momValues: [], dates: [] })
+        monthlyByYear[year] = []
       }
       yearlyMap.get(year)!.values.push(item.value)
       yearlyMap.get(year)!.momValues.push(item.mom || 0)
       yearlyMap.get(year)!.dates.push(item.date)
+      monthlyByYear[year].push(item)
     })
 
     const years = Array.from(yearlyMap.keys()).sort()
@@ -81,11 +116,11 @@ function App() {
       return { year, avg: Number(avg.toFixed(2)), max, min, start, end, yearChange, momSum: Number(momSum.toFixed(2)) }
     })
 
-    return { yearlyData, years }
+    return { yearlyData, years, monthlyByYear }
   }, [m2Data])
 
-  // 固定的坐标轴范围
-  const axisRange = useMemo(() => {
+  // 获取全局Y轴范围
+  const globalAxisRange = useMemo(() => {
     if (!m2Data) return { yoyMin: 0, yoyMax: 40, momMin: -5, momMax: 5 }
     
     const yoyValues = m2Data.data.map(d => d.value)
@@ -99,234 +134,273 @@ function App() {
     }
   }, [m2Data])
 
-  const getChartOption = () => {
+  const getChartOption = useCallback((): EChartsOption => {
     if (!m2Data || !m2Data.data.length) return {}
 
+    // 年度视图
     if (view === 'year') {
       return {
         title: {
           text: 'M2增速 - 年度均值',
           left: 'center',
           top: 10,
-          textStyle: { color: '#e2e8f0', fontSize: 16, fontWeight: 'bold' }
+          textStyle: { color: '#e2e8f0', fontSize: 20, fontWeight: 'bold' }
         },
         tooltip: {
           trigger: 'axis',
           backgroundColor: '#1e293b',
           borderColor: '#475569',
-          textStyle: { color: '#e2e8f0' },
+          textStyle: { color: '#e2e8f0', fontSize: 14 },
           formatter: (params: any) => {
             const idx = params[0].dataIndex
             const d = processedData.yearlyData[idx]
-            return `<div style="padding: 8px;">
-              <div style="font-weight: bold; margin-bottom: 6px; font-size: 14px;">${d.year}年</div>
-              <table style="font-size: 12px;">
-                <tr><td style="padding: 2px 8px 2px 0;">年均值</td><td><strong>${d.avg}%</strong></td></tr>
+            return `<div style="padding: 10px;">
+              <div style="font-weight: bold; margin-bottom: 8px; font-size: 16px;">${d.year}年</div>
+              <table style="font-size: 14px;">
+                <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${d.avg}%</strong></td></tr>
                 <tr><td>最高</td><td style="color:#ef4444">${d.max}%</td></tr>
                 <tr><td>最低</td><td style="color:#22c55e">${d.min}%</td></tr>
                 <tr><td>年末同比</td><td>${d.end}%</td></tr>
               </table>
+              <div style="margin-top: 8px; color: #94a3b8; font-size: 12px;">点击查看该年月度数据</div>
             </div>`
           }
         },
-        grid: { top: 60, right: 30, bottom: 60, left: 50 },
+        grid: { top: 70, right: 50, bottom: 70, left: 60 },
         xAxis: {
           type: 'category',
           data: processedData.yearlyData.map(d => d.year),
           axisLine: { lineStyle: { color: '#475569' } },
-          axisLabel: { color: '#94a3b8', fontSize: 11 },
+          axisLabel: { color: '#94a3b8', fontSize: 14 },
           axisTick: { show: false }
         },
         yAxis: {
           type: 'value',
           name: '%',
-          nameTextStyle: { color: '#94a3b8', fontSize: 11 },
-          min: axisRange.yoyMin,
-          max: axisRange.yoyMax,
+          nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+          min: globalAxisRange.yoyMin,
+          max: globalAxisRange.yoyMax,
           axisLine: { show: false },
           splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
-          axisLabel: { color: '#94a3b8', fontSize: 11 }
+          axisLabel: { color: '#94a3b8', fontSize: 14 }
         },
         dataZoom: [
-          { type: 'slider', start: 0, end: 100, bottom: 10, height: 24, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 10 }, dataBackground: { lineStyle: { color: '#475569' }, areaStyle: { color: '#1e293b' } } },
+          { type: 'slider', start: 0, end: 100, bottom: 10, height: 28, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 12 } },
           { type: 'inside', start: 0, end: 100 }
         ],
         series: [{
           type: 'bar',
           data: processedData.yearlyData.map(d => d.avg),
-          barMaxWidth: 40,
+          barMaxWidth: 50,
           itemStyle: {
             color: (params: any) => processedData.yearlyData[params.dataIndex].yearChange >= 0 ? '#22c55e' : '#ef4444',
-            borderRadius: [4, 4, 0, 0]
+            borderRadius: [6, 6, 0, 0]
           },
-          emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(168, 85, 247, 0.5)' } }
+          emphasis: { itemStyle: { shadowBlur: 15, shadowColor: 'rgba(168, 85, 247, 0.5)' } }
         }]
       }
+    }
+
+    // 月度视图
+    let displayData: { dates: string[], yoy: number[], mom: number[] }
+    
+    if (selectedYear && processedData.monthlyByYear[selectedYear]) {
+      // 显示指定年份的月度数据
+      const yearData = processedData.monthlyByYear[selectedYear]
+      displayData = {
+        dates: yearData.map(d => d.date),
+        yoy: yearData.map(d => d.value),
+        mom: yearData.map(d => d.mom || 0)
+      }
     } else {
-      const allDates = m2Data.data.map(d => d.date)
-      const yoyValues = m2Data.data.map(d => d.value)
-      const momValues = m2Data.data.map(d => d.mom)
-      
-      const series: any[] = []
-      
-      if (metric === 'yoy' || metric === 'both') {
-        series.push({
-          name: '同比增速',
-          type: 'line',
-          yAxisIndex: 0,
-          data: yoyValues,
-          smooth: true,
-          symbol: 'none',
-          lineStyle: { color: '#a855f7', width: 2 },
-          areaStyle: metric === 'yoy' ? {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168, 85, 247, 0.3)' }, { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }] }
-          } : undefined
-        })
-      }
-      
-      if (metric === 'mom' || metric === 'both') {
-        series.push({
-          name: '环比变化',
-          type: 'bar',
-          yAxisIndex: metric === 'both' ? 1 : 0,
-          data: momValues,
-          barMaxWidth: 8,
-          itemStyle: {
-            color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
-            borderRadius: [2, 2, 0, 0]
-          }
-        })
-      }
-
-      // 根据选择的指标决定Y轴配置
-      const yAxisConfig: any[] = []
-      
-      if (metric === 'yoy' || metric === 'both') {
-        yAxisConfig.push({
-          type: 'value',
-          name: '同比 %',
-          nameTextStyle: { color: '#94a3b8', fontSize: 11 },
-          min: axisRange.yoyMin,
-          max: axisRange.yoyMax,
-          position: 'left',
-          axisLine: { show: true, lineStyle: { color: '#a855f7' } },
-          splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
-          axisLabel: { color: '#94a3b8', fontSize: 11 }
-        })
-      }
-      
-      if (metric === 'mom') {
-        yAxisConfig.push({
-          type: 'value',
-          name: '环比 pp',
-          nameTextStyle: { color: '#94a3b8', fontSize: 11 },
-          min: axisRange.momMin,
-          max: axisRange.momMax,
-          position: 'left',
-          axisLine: { show: true, lineStyle: { color: '#22c55e' } },
-          splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
-          axisLabel: { color: '#94a3b8', fontSize: 11 }
-        })
-      }
-      
-      if (metric === 'both') {
-        yAxisConfig.push({
-          type: 'value',
-          name: '环比 pp',
-          nameTextStyle: { color: '#94a3b8', fontSize: 11 },
-          min: axisRange.momMin,
-          max: axisRange.momMax,
-          position: 'right',
-          axisLine: { show: true, lineStyle: { color: '#22c55e' } },
-          splitLine: { show: false },
-          axisLabel: { color: '#94a3b8', fontSize: 11 }
-        })
-      }
-
-      return {
-        title: {
-          text: 'M2增速 - 月度数据',
-          left: 'center',
-          top: 10,
-          textStyle: { color: '#e2e8f0', fontSize: 16, fontWeight: 'bold' }
-        },
-        tooltip: {
-          trigger: 'axis',
-          backgroundColor: '#1e293b',
-          borderColor: '#475569',
-          textStyle: { color: '#e2e8f0' },
-          formatter: (params: any) => {
-            let html = `<div style="padding: 8px;"><div style="font-weight: bold; margin-bottom: 6px;">${params[0].name}</div>`
-            params.forEach((p: any) => {
-              const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
-              const unit = p.seriesName === '同比增速' ? '%' : 'pp'
-              html += `<div><span style="color:${color}">${p.seriesName}</span>: ${p.value}${unit}</div>`
-            })
-            html += '</div>'
-            return html
-          }
-        },
-        legend: {
-          show: metric === 'both',
-          data: metric === 'both' ? ['同比增速', '环比变化'] : [],
-          top: 35,
-          textStyle: { color: '#94a3b8', fontSize: 11 }
-        },
-        grid: { top: metric === 'both' ? 60 : 50, right: metric === 'both' ? 50 : 30, bottom: 60, left: 50 },
-        xAxis: {
-          type: 'category',
-          data: allDates,
-          axisLine: { lineStyle: { color: '#475569' } },
-          axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 45 },
-          axisTick: { show: false }
-        },
-        yAxis: yAxisConfig,
-        dataZoom: [
-          { 
-            type: 'slider', 
-            start: 80,
-            end: 100, 
-            bottom: 10, 
-            height: 24,
-            borderColor: '#475569', 
-            backgroundColor: '#1e293b', 
-            fillerColor: 'rgba(168, 85, 247, 0.2)', 
-            textStyle: { color: '#94a3b8', fontSize: 10 },
-            dataBackground: { lineStyle: { color: '#475569' }, areaStyle: { color: '#1e293b' } }
-          },
-          { type: 'inside', startX: 80, endX: 100 }
-        ],
-        series
+      // 显示全部月度数据
+      displayData = {
+        dates: m2Data.data.map(d => d.date),
+        yoy: m2Data.data.map(d => d.value),
+        mom: m2Data.data.map(d => d.mom || 0)
       }
     }
-  }
+
+    const series: any[] = []
+    const yAxisConfig: any[] = []
+
+    if (metric === 'yoy' || metric === 'both') {
+      series.push({
+        name: '同比增速',
+        type: 'line',
+        yAxisIndex: 0,
+        data: displayData.yoy,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color: '#a855f7', width: 3 },
+        itemStyle: { color: '#a855f7' },
+        areaStyle: metric === 'yoy' ? {
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168, 85, 247, 0.4)' }, { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }] }
+        } : undefined
+      })
+    }
+
+    if (metric === 'mom' || metric === 'both') {
+      series.push({
+        name: '环比变化',
+        type: 'bar',
+        yAxisIndex: metric === 'both' ? 1 : 0,
+        data: displayData.mom,
+        barMaxWidth: metric === 'both' ? 10 : 20,
+        itemStyle: {
+          color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+          borderRadius: [3, 3, 0, 0]
+        }
+      })
+    }
+
+    if (metric === 'yoy' || metric === 'both') {
+      yAxisConfig.push({
+        type: 'value',
+        name: '同比 %',
+        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+        min: globalAxisRange.yoyMin,
+        max: globalAxisRange.yoyMax,
+        position: 'left',
+        axisLine: { show: true, lineStyle: { color: '#a855f7' } },
+        splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
+        axisLabel: { color: '#94a3b8', fontSize: 14 }
+      })
+    }
+
+    if (metric === 'mom') {
+      yAxisConfig.push({
+        type: 'value',
+        name: '环比 pp',
+        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+        min: globalAxisRange.momMin,
+        max: globalAxisRange.momMax,
+        position: 'left',
+        axisLine: { show: true, lineStyle: { color: '#22c55e' } },
+        splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
+        axisLabel: { color: '#94a3b8', fontSize: 14 }
+      })
+    }
+
+    if (metric === 'both') {
+      yAxisConfig.push({
+        type: 'value',
+        name: '环比 pp',
+        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+        min: globalAxisRange.momMin,
+        max: globalAxisRange.momMax,
+        position: 'right',
+        axisLine: { show: true, lineStyle: { color: '#22c55e' } },
+        splitLine: { show: false },
+        axisLabel: { color: '#94a3b8', fontSize: 14 }
+      })
+    }
+
+    const titleText = selectedYear 
+      ? `M2增速 - ${selectedYear}年月度数据` 
+      : 'M2增速 - 月度数据'
+
+    return {
+      title: {
+        text: titleText,
+        left: 'center',
+        top: 10,
+        textStyle: { color: '#e2e8f0', fontSize: 20, fontWeight: 'bold' }
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#1e293b',
+        borderColor: '#475569',
+        textStyle: { color: '#e2e8f0', fontSize: 14 },
+        formatter: (params: any) => {
+          let html = `<div style="padding: 10px;"><div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${params[0].name}</div>`
+          params.forEach((p: any) => {
+            const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
+            const unit = p.seriesName === '同比增速' ? '%' : 'pp'
+            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}${unit}</div>`
+          })
+          html += '</div>'
+          return html
+        }
+      },
+      legend: {
+        show: metric === 'both',
+        data: metric === 'both' ? ['同比增速', '环比变化'] : [],
+        top: 40,
+        textStyle: { color: '#94a3b8', fontSize: 14 }
+      },
+      grid: { 
+        top: metric === 'both' ? 70 : 60, 
+        right: metric === 'both' ? 60 : 50, 
+        bottom: 70, 
+        left: 60 
+      },
+      xAxis: {
+        type: 'category',
+        data: displayData.dates,
+        axisLine: { lineStyle: { color: '#475569' } },
+        axisLabel: { 
+          color: '#94a3b8', 
+          fontSize: 13, 
+          rotate: displayData.dates.length > 24 ? 45 : 0 
+        },
+        axisTick: { show: false }
+      },
+      yAxis: yAxisConfig,
+      dataZoom: [
+        { 
+          type: 'slider', 
+          start: displayData.dates.length > 24 ? 80 : 0,
+          end: 100, 
+          bottom: 10, 
+          height: 28,
+          borderColor: '#475569', 
+          backgroundColor: '#1e293b', 
+          fillerColor: 'rgba(168, 85, 247, 0.2)', 
+          textStyle: { color: '#94a3b8', fontSize: 12 }
+        },
+        { type: 'inside', start: displayData.dates.length > 24 ? 80 : 0, end: 100 }
+      ],
+      series
+    }
+  }, [m2Data, view, metric, selectedYear, processedData, globalAxisRange])
+
+  // 图表点击事件
+  const onChartClick = useCallback((params: any) => {
+    if (isTransitioning) return
+    
+    if (view === 'year' && params.componentType === 'series' && params.seriesType === 'bar') {
+      const year = processedData.yearlyData[params.dataIndex]?.year
+      if (year) {
+        handleYearClick(year)
+      }
+    }
+  }, [view, processedData.yearlyData, isTransitioning])
 
   const getStats = () => {
     if (!m2Data) return null
     const values = m2Data.data.map(d => d.value)
     const momValues = m2Data.data.map(d => d.mom || 0)
     const latest = values[values.length - 1]
-    const prev = values[values.length - 2]
     const latestMom = momValues[momValues.length - 1]
     return { 
       latest, 
-      prev,
-      change: Number((latest - prev).toFixed(2)),
+      latestMom,
       max: Math.max(...values), 
       min: Math.min(...values), 
       maxDate: m2Data.data.find(d => d.value === Math.max(...values))?.date,
       minDate: m2Data.data.find(d => d.value === Math.min(...values))?.date,
-      latestMom,
       count: m2Data.data.length
     }
   }
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="text-white">加载中...</div></div>
+    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="text-white text-xl">加载中...</div></div>
   }
 
   if (error || !m2Data) {
-    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="text-white">{error || '加载失败'}</div></div>
+    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="text-white text-xl">{error || '加载失败'}</div></div>
   }
 
   const stats = getStats()!
@@ -407,14 +481,16 @@ function App() {
               <span className="text-slate-400 text-sm">时间维度:</span>
               <div className="flex bg-slate-700 rounded p-0.5">
                 <button
-                  onClick={() => setView('year')}
-                  className={`px-3 py-1 text-sm rounded transition-colors ${view === 'year' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={() => handleViewChange('year')}
+                  disabled={isTransitioning}
+                  className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'year' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 >
                   年度
                 </button>
                 <button
-                  onClick={() => setView('month')}
-                  className={`px-3 py-1 text-sm rounded transition-colors ${view === 'month' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={() => handleViewChange('month')}
+                  disabled={isTransitioning}
+                  className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'month' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 >
                   月度
                 </button>
@@ -427,43 +503,74 @@ function App() {
                 <span className="text-slate-400 text-sm">显示指标:</span>
                 <div className="flex bg-slate-700 rounded p-0.5">
                   <button
-                    onClick={() => setMetric('both')}
-                    className={`px-3 py-1 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                    onClick={() => !isTransitioning && setMetric('both')}
+                    disabled={isTransitioning}
+                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     同比+环比
                   </button>
                   <button
-                    onClick={() => setMetric('yoy')}
-                    className={`px-3 py-1 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                    onClick={() => !isTransitioning && setMetric('yoy')}
+                    disabled={isTransitioning}
+                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     仅同比
                   </button>
                   <button
-                    onClick={() => setMetric('mom')}
-                    className={`px-3 py-1 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                    onClick={() => !isTransitioning && setMetric('mom')}
+                    disabled={isTransitioning}
+                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     仅环比
                   </button>
                 </div>
               </div>
             )}
+
+            {/* 年份选择 - 月度视图且有选中年份时显示 */}
+            {view === 'month' && selectedYear && (
+              <button
+                onClick={() => {
+                  setSelectedYear(null)
+                }}
+                className="text-sm text-purple-400 hover:text-purple-300"
+              >
+                ← 返回全部月度
+              </button>
+            )}
+          </div>
+          
+          {/* 提示信息 */}
+          <div className="text-slate-500 text-sm mt-3">
+            {view === 'year' && '💡 点击柱子可查看该年月度数据'}
+            {view === 'month' && !selectedYear && '💡 拖动滑块查看不同时期，共420个月数据'}
+            {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
           </div>
         </div>
 
         {/* 图表 */}
         <div className="bg-slate-800 rounded-lg p-4 mb-4">
           <ReactECharts 
+            ref={chartRef}
             option={getChartOption()} 
-            style={{ height: '450px' }}
+            style={{ height: '480px' }}
             opts={{ renderer: 'canvas' }}
+            onEvents={{ click: onChartClick }}
+            notMerge={true}
           />
         </div>
 
         {/* 说明 */}
         <div className="bg-slate-800 rounded-lg p-4">
-          <div className="flex gap-6 text-sm text-slate-400">
-            <div><span className="text-purple-400">● 同比增速</span>: 与去年同月比较</div>
-            <div><span className="text-green-400">● 环比变化</span>: 与上月比较 (单位: pp即百分点)</div>
+          <div className="flex gap-8 text-sm text-slate-400">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+              <span>同比增速: 与去年同月比较</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-green-500"></span>
+              <span>环比变化: 与上月比较 (单位: pp即百分点)</span>
+            </div>
           </div>
         </div>
       </main>
