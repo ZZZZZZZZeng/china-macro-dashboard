@@ -5,8 +5,6 @@ import type { EChartsOption } from 'echarts'
 interface M2DataPoint {
   date: string
   value: number
-  mom: number
-  balance?: number
 }
 
 interface M2Data {
@@ -16,6 +14,7 @@ interface M2Data {
   sourceUrl: string
   updateTime: string
   description: string
+  note?: string
   data: M2DataPoint[]
 }
 
@@ -49,6 +48,17 @@ function App() {
       const response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/m2.json')
       if (!response.ok) throw new Error('数据获取失败')
       const data = await response.json()
+      
+      // 计算环比变化 = 本月同比 - 上月同比（单位：pp百分点）
+      data.data = data.data.map((item: M2DataPoint, index: number) => {
+        if (index === 0) {
+          return { ...item, mom: 0 }
+        }
+        const prevValue = data.data[index - 1].value
+        const mom = Number((item.value - prevValue).toFixed(2))
+        return { ...item, mom }
+      })
+      
       setM2Data(data)
     } catch (e) {
       setError('数据加载失败，请刷新重试')
@@ -63,14 +73,14 @@ function App() {
     const yearlyMap = new Map<string, { values: number[], momValues: number[], dates: string[] }>()
     const monthlyByYear: Record<string, M2DataPoint[]> = {}
 
-    m2Data.data.forEach(item => {
+    m2Data.data.forEach((item: M2DataPoint) => {
       const year = item.date.split('-')[0]
       if (!yearlyMap.has(year)) {
         yearlyMap.set(year, { values: [], momValues: [], dates: [] })
         monthlyByYear[year] = []
       }
       yearlyMap.get(year)!.values.push(item.value)
-      yearlyMap.get(year)!.momValues.push(item.mom || 0)
+      yearlyMap.get(year)!.momValues.push((item as any).mom || 0)
       yearlyMap.get(year)!.dates.push(item.date)
       monthlyByYear[year].push(item)
     })
@@ -109,14 +119,14 @@ function App() {
       return {
         dates: yearData.map(d => d.date),
         yoy: yearData.map(d => d.value),
-        mom: yearData.map(d => d.mom || 0)
+        mom: yearData.map((d: any) => d.mom || 0)
       }
     }
 
     return {
       dates: m2Data.data.map(d => d.date),
       yoy: m2Data.data.map(d => d.value),
-      mom: m2Data.data.map(d => d.mom || 0)
+      mom: m2Data.data.map((d: any) => d.mom || 0)
     }
   }, [m2Data, view, selectedYear, processedData])
 
@@ -143,8 +153,8 @@ function App() {
     const visibleYoy = displayData.yoy.slice(startIdx, endIdx)
     const visibleMom = displayData.mom.slice(startIdx, endIdx)
 
-    const yoyRange = calculateAxisRange(visibleYoy.filter(v => v !== undefined) as number[])
-    const momRange = calculateAxisRange(visibleMom.filter(v => v !== undefined) as number[])
+    const yoyRange = calculateAxisRange(visibleYoy.filter((v): v is number => v !== undefined))
+    const momRange = calculateAxisRange(visibleMom.filter((v): v is number => v !== undefined))
 
     // 年度视图
     if (view === 'year') {
@@ -174,16 +184,12 @@ function App() {
             </div>`
           }
         },
-        grid: { top: 70, right: 50, bottom: 90, left: 60 },  // 增加底部空间
+        grid: { top: 70, right: 50, bottom: 90, left: 60 },
         xAxis: {
           type: 'category',
           data: displayData.dates,
           axisLine: { lineStyle: { color: '#475569' } },
-          axisLabel: { 
-            color: '#94a3b8', 
-            fontSize: 13,
-            interval: 0  // 显示所有年份标签
-          },
+          axisLabel: { color: '#94a3b8', fontSize: 13, interval: 0 },
           axisTick: { show: false }
         },
         yAxis: {
@@ -197,17 +203,7 @@ function App() {
           axisLabel: { color: '#94a3b8', fontSize: 14 }
         },
         dataZoom: [
-          { 
-            type: 'slider', 
-            start: visibleRange.start, 
-            end: visibleRange.end, 
-            bottom: 20,  // 滑窗位置下移
-            height: 28, 
-            borderColor: '#475569', 
-            backgroundColor: '#1e293b', 
-            fillerColor: 'rgba(168, 85, 247, 0.2)', 
-            textStyle: { color: '#94a3b8', fontSize: 12 } 
-          },
+          { type: 'slider', start: visibleRange.start, end: visibleRange.end, bottom: 20, height: 28, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 12 } },
           { type: 'inside', start: visibleRange.start, end: visibleRange.end }
         ],
         series: [{
@@ -239,21 +235,14 @@ function App() {
         lineStyle: { color: '#a855f7', width: 3 },
         itemStyle: { color: '#a855f7' },
         areaStyle: metric === 'yoy' ? {
-          color: { 
-            type: 'linear', 
-            x: 0, y: 0, x2: 0, y2: 1, 
-            colorStops: [
-              { offset: 0, color: 'rgba(168, 85, 247, 0.3)' }, 
-              { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }
-            ] 
-          }
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168, 85, 247, 0.3)' }, { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }] }
         } : undefined
       })
     }
 
     if (metric === 'mom' || metric === 'both') {
       series.push({
-        name: '环比增速',
+        name: '环比变化',
         type: 'bar',
         yAxisIndex: metric === 'both' ? 1 : 0,
         data: displayData.mom,
@@ -262,7 +251,6 @@ function App() {
           color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
           borderRadius: [2, 2, 0, 0]
         },
-        // 渐进渲染优化
         progressive: 200,
         progressiveThreshold: 300
       })
@@ -285,7 +273,7 @@ function App() {
     if (metric === 'mom') {
       yAxisConfig.push({
         type: 'value',
-        name: '环比 %',
+        name: '变化 pp',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -299,7 +287,7 @@ function App() {
     if (metric === 'both') {
       yAxisConfig.push({
         type: 'value',
-        name: '环比 %',
+        name: '变化 pp',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -310,9 +298,7 @@ function App() {
       })
     }
 
-    const titleText = selectedYear 
-      ? `M2增速 - ${selectedYear}年月度数据` 
-      : 'M2增速 - 月度数据'
+    const titleText = selectedYear ? `M2增速 - ${selectedYear}年月度数据` : 'M2增速 - 月度数据'
 
     return {
       title: {
@@ -330,7 +316,8 @@ function App() {
           let html = `<div style="padding: 10px;"><div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${params[0].name}</div>`
           params.forEach((p: any) => {
             const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
-            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}%</div>`
+            const unit = p.seriesName === '同比增速' ? '%' : 'pp'
+            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}${unit}</div>`
           })
           html += '</div>'
           return html
@@ -338,53 +325,27 @@ function App() {
       },
       legend: {
         show: metric === 'both',
-        data: metric === 'both' ? ['同比增速', '环比增速'] : [],
+        data: metric === 'both' ? ['同比增速', '环比变化'] : [],
         top: 40,
         textStyle: { color: '#94a3b8', fontSize: 14 }
       },
-      grid: { 
-        top: metric === 'both' ? 70 : 60, 
-        right: metric === 'both' ? 60 : 50, 
-        bottom: 90,  // 增加底部空间
-        left: 60 
-      },
+      grid: { top: metric === 'both' ? 70 : 60, right: metric === 'both' ? 60 : 50, bottom: 90, left: 60 },
       xAxis: {
         type: 'category',
         data: displayData.dates,
         axisLine: { lineStyle: { color: '#475569' } },
-        axisLabel: { 
-          color: '#94a3b8', 
-          fontSize: 12, 
-          rotate: displayData.dates.length > 24 ? 45 : 0,
-          interval: 'auto'
-        },
+        axisLabel: { color: '#94a3b8', fontSize: 12, rotate: displayData.dates.length > 24 ? 45 : 0, interval: 'auto' },
         axisTick: { show: false }
       },
       yAxis: yAxisConfig,
       dataZoom: [
-        { 
-          type: 'slider', 
-          start: visibleRange.start,
-          end: visibleRange.end, 
-          bottom: 20,  // 滑窗位置下移
-          height: 28,
-          borderColor: '#475569', 
-          backgroundColor: '#1e293b', 
-          fillerColor: 'rgba(168, 85, 247, 0.2)', 
-          textStyle: { color: '#94a3b8', fontSize: 12 },
-          zoomLock: false
-        },
-        { 
-          type: 'inside', 
-          start: visibleRange.start, 
-          end: visibleRange.end 
-        }
+        { type: 'slider', start: visibleRange.start, end: visibleRange.end, bottom: 20, height: 28, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 12 }, zoomLock: false },
+        { type: 'inside', start: visibleRange.start, end: visibleRange.end }
       ],
       series
     }
   }, [view, metric, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
 
-  // 使用防抖处理 dataZoom 事件
   const debouncedSetVisibleRange = useRef(
     debounce((start: number, end: number) => {
       setVisibleRange({ start, end })
@@ -423,14 +384,14 @@ function App() {
   const getStats = () => {
     if (!m2Data) return null
     const values = m2Data.data.map(d => d.value)
-    const momValues = m2Data.data.map(d => d.mom || 0)
+    const momValues = m2Data.data.map((d: any) => d.mom || 0)
     const latest = values[values.length - 1]
     const latestMom = momValues[momValues.length - 1]
-    return { 
-      latest, 
+    return {
+      latest,
       latestMom,
-      max: Math.max(...values), 
-      min: Math.min(...values), 
+      max: Math.max(...values),
+      min: Math.min(...values),
       maxDate: m2Data.data.find(d => d.value === Math.max(...values))?.date,
       minDate: m2Data.data.find(d => d.value === Math.min(...values))?.date,
       count: m2Data.data.length
@@ -480,9 +441,9 @@ function App() {
             <div className="text-slate-500 text-xs">2026年2月</div>
           </div>
           <div className="bg-slate-800 rounded-lg p-3">
-            <div className="text-slate-400 text-xs mb-1">最新环比</div>
+            <div className="text-slate-400 text-xs mb-1">环比变化</div>
             <div className={`text-2xl font-bold ${stats.latestMom! >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}%
+              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}pp
             </div>
             <div className="text-slate-500 text-xs">较上月</div>
           </div>
@@ -531,7 +492,7 @@ function App() {
           
           <div className="text-slate-500 text-sm mt-3">
             {view === 'year' && '💡 点击柱子可查看该年月度数据'}
-            {view === 'month' && !selectedYear && '💡 环比增速 = (本月M2余额 - 上月M2余额) / 上月M2余额 × 100%'}
+            {view === 'month' && !selectedYear && '💡 环比变化 = 本月同比增速 - 上月同比增速（单位：pp百分点）'}
             {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
           </div>
         </div>
@@ -547,15 +508,25 @@ function App() {
         </div>
 
         <div className="bg-slate-800 rounded-lg p-4">
-          <div className="flex gap-8 text-sm text-slate-400">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-purple-500"></span>
-              <span>同比增速: (本月M2 - 去年同月M2) / 去年同月M2 × 100%</span>
+          <div className="text-sm text-slate-300 mb-2 font-semibold">📊 指标说明</div>
+          <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-400">
+            <div className="flex items-start gap-2">
+              <span className="w-3 h-3 rounded-full bg-purple-500 mt-1"></span>
+              <div>
+                <span className="text-white">同比增速</span>：与去年同月比较，反映长期趋势
+                <div className="text-xs text-slate-500 mt-1">公式：(本年某月 - 去年同月) / 去年同月 × 100%</div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded bg-green-500"></span>
-              <span>环比增速: (本月M2 - 上月M2) / 上月M2 × 100%</span>
+            <div className="flex items-start gap-2">
+              <span className="w-3 h-3 rounded bg-green-500 mt-1"></span>
+              <div>
+                <span className="text-white">环比变化</span>：同比增速的月度变化，反映短期动能
+                <div className="text-xs text-slate-500 mt-1">公式：本月同比增速 - 上月同比增速（单位：pp）</div>
+              </div>
             </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-500">
+            数据完全来自中国人民银行官方统计，环比变化基于官方同比数据计算
           </div>
         </div>
       </main>
