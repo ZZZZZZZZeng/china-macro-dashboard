@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 
@@ -28,6 +28,10 @@ function App() {
   const [view, setView] = useState<TimeView>('year')
   const [metric, setMetric] = useState<ChartMetric>('both')
   const [selectedYear, setSelectedYear] = useState<string | null>(null)
+  
+  // 用于跟踪当前可见的数据范围
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 })
+  const chartInstanceRef = useRef<any>(null)
 
   useEffect(() => {
     fetchM2Data()
@@ -52,10 +56,6 @@ function App() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    fetchM2Data()
-  }, [])
 
   const processedData = useMemo(() => {
     if (!m2Data) return { yearlyData: [], years: [], monthlyByYear: {} }
@@ -93,15 +93,67 @@ function App() {
     return { yearlyData, years, monthlyByYear }
   }, [m2Data])
 
+  // 获取当前显示的数据
+  const getDisplayData = useCallback(() => {
+    if (!m2Data) return null
+
+    if (view === 'year') {
+      return {
+        dates: processedData.yearlyData.map(d => d.year),
+        yoy: processedData.yearlyData.map(d => d.avg),
+        mom: processedData.yearlyData.map(d => d.momSum)
+      }
+    }
+
+    if (selectedYear && processedData.monthlyByYear[selectedYear]) {
+      const yearData = processedData.monthlyByYear[selectedYear]
+      return {
+        dates: yearData.map(d => d.date),
+        yoy: yearData.map(d => d.value),
+        mom: yearData.map(d => d.mom || 0)
+      }
+    }
+
+    return {
+      dates: m2Data.data.map(d => d.date),
+      yoy: m2Data.data.map(d => d.value),
+      mom: m2Data.data.map(d => d.mom || 0)
+    }
+  }, [m2Data, view, selectedYear, processedData])
+
+  // 根据可见范围计算Y轴范围
+  const calculateAxisRange = useCallback((data: number[], padding: number = 0.1) => {
+    if (data.length === 0) return { min: 0, max: 10 }
+    
+    const min = Math.min(...data)
+    const max = Math.max(...data)
+    const range = max - min
+    const pad = range * padding
+    
+    return {
+      min: Math.floor((min - pad) * 10) / 10,
+      max: Math.ceil((max + pad) * 10) / 10
+    }
+  }, [])
+
   const getChartOption = useCallback((): EChartsOption => {
-    if (!m2Data || !m2Data.data.length) return {}
+    const displayData = getDisplayData()
+    if (!displayData) return {}
+
+    // 计算当前可见范围的数据索引
+    const totalLength = displayData.dates.length
+    const startIdx = Math.floor((visibleRange.start / 100) * totalLength)
+    const endIdx = Math.ceil((visibleRange.end / 100) * totalLength)
+    
+    const visibleYoy = displayData.yoy.slice(startIdx, endIdx)
+    const visibleMom = displayData.mom.slice(startIdx, endIdx)
+
+    // 根据可见数据计算Y轴范围
+    const yoyRange = calculateAxisRange(visibleYoy.filter(v => v !== undefined) as number[])
+    const momRange = calculateAxisRange(visibleMom.filter(v => v !== undefined) as number[])
 
     // 年度视图
     if (view === 'year') {
-      const values = processedData.yearlyData.map(d => d.avg)
-      const yoyMin = Math.floor(Math.min(...values) / 5) * 5 - 2
-      const yoyMax = Math.ceil(Math.max(...values) / 5) * 5 + 2
-
       return {
         title: {
           text: 'M2增速 - 年度均值',
@@ -132,7 +184,7 @@ function App() {
         grid: { top: 70, right: 50, bottom: 70, left: 60 },
         xAxis: {
           type: 'category',
-          data: processedData.yearlyData.map(d => d.year),
+          data: displayData.dates,
           axisLine: { lineStyle: { color: '#475569' } },
           axisLabel: { color: '#94a3b8', fontSize: 14 },
           axisTick: { show: false }
@@ -141,22 +193,32 @@ function App() {
           type: 'value',
           name: '%',
           nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-          min: yoyMin,
-          max: yoyMax,
+          min: yoyRange.min,
+          max: yoyRange.max,
           axisLine: { show: false },
           splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
           axisLabel: { color: '#94a3b8', fontSize: 14 }
         },
         dataZoom: [
-          { type: 'slider', start: 0, end: 100, bottom: 10, height: 28, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 12 } },
-          { type: 'inside', start: 0, end: 100 }
+          { 
+            type: 'slider', 
+            start: visibleRange.start, 
+            end: visibleRange.end, 
+            bottom: 10, 
+            height: 28, 
+            borderColor: '#475569', 
+            backgroundColor: '#1e293b', 
+            fillerColor: 'rgba(168, 85, 247, 0.2)', 
+            textStyle: { color: '#94a3b8', fontSize: 12 } 
+          },
+          { type: 'inside', start: visibleRange.start, end: visibleRange.end }
         ],
         series: [{
           type: 'bar',
-          data: values,
+          data: displayData.yoy,
           barMaxWidth: 50,
           itemStyle: {
-            color: (params: any) => processedData.yearlyData[params.dataIndex].yearChange >= 0 ? '#22c55e' : '#ef4444',
+            color: (params: any) => processedData.yearlyData[params.dataIndex]?.yearChange >= 0 ? '#22c55e' : '#ef4444',
             borderRadius: [6, 6, 0, 0]
           },
           emphasis: { itemStyle: { shadowBlur: 15, shadowColor: 'rgba(168, 85, 247, 0.5)' } }
@@ -165,29 +227,6 @@ function App() {
     }
 
     // 月度视图
-    let displayData: { dates: string[], yoy: number[], mom: number[] }
-    
-    if (selectedYear && processedData.monthlyByYear[selectedYear]) {
-      const yearData = processedData.monthlyByYear[selectedYear]
-      displayData = {
-        dates: yearData.map(d => d.date),
-        yoy: yearData.map(d => d.value),
-        mom: yearData.map(d => d.mom || 0)
-      }
-    } else {
-      displayData = {
-        dates: m2Data.data.map(d => d.date),
-        yoy: m2Data.data.map(d => d.value),
-        mom: m2Data.data.map(d => d.mom || 0)
-      }
-    }
-
-    // 根据数据动态计算Y轴范围
-    const yoyMin = Math.floor(Math.min(...displayData.yoy) as number / 2) * 2 - 2
-    const yoyMax = Math.ceil(Math.max(...displayData.yoy) as number / 2) * 2 + 2
-    const momMin = Math.floor(Math.min(...displayData.mom) as number * 2) / 2 - 1
-    const momMax = Math.ceil(Math.max(...displayData.mom) as number * 2) / 2 + 1
-
     const series: any[] = []
     const yAxisConfig: any[] = []
 
@@ -227,8 +266,8 @@ function App() {
         type: 'value',
         name: '同比 %',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: yoyMin,
-        max: yoyMax,
+        min: yoyRange.min,
+        max: yoyRange.max,
         position: 'left',
         axisLine: { show: true, lineStyle: { color: '#a855f7' } },
         splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
@@ -241,8 +280,8 @@ function App() {
         type: 'value',
         name: '环比 pp',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: momMin,
-        max: momMax,
+        min: momRange.min,
+        max: momRange.max,
         position: 'left',
         axisLine: { show: true, lineStyle: { color: '#22c55e' } },
         splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
@@ -255,8 +294,8 @@ function App() {
         type: 'value',
         name: '环比 pp',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: momMin,
-        max: momMax,
+        min: momRange.min,
+        max: momRange.max,
         position: 'right',
         axisLine: { show: true, lineStyle: { color: '#22c55e' } },
         splitLine: { show: false },
@@ -318,8 +357,8 @@ function App() {
       dataZoom: [
         { 
           type: 'slider', 
-          start: displayData.dates.length > 24 ? 80 : 0,
-          end: 100, 
+          start: visibleRange.start,
+          end: visibleRange.end, 
           bottom: 10, 
           height: 28,
           borderColor: '#475569', 
@@ -327,11 +366,25 @@ function App() {
           fillerColor: 'rgba(168, 85, 247, 0.2)', 
           textStyle: { color: '#94a3b8', fontSize: 12 }
         },
-        { type: 'inside', start: displayData.dates.length > 24 ? 80 : 0, end: 100 }
+        { 
+          type: 'inside', 
+          start: visibleRange.start, 
+          end: visibleRange.end 
+        }
       ],
       series
     }
-  }, [m2Data, view, metric, selectedYear, processedData])
+  }, [view, metric, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
+
+  // 处理 dataZoom 事件
+  const onDataZoom = useCallback((params: any) => {
+    if (params.batch) {
+      const { start, end } = params.batch[0]
+      setVisibleRange({ start, end })
+    } else if (params.start !== undefined && params.end !== undefined) {
+      setVisibleRange({ start: params.start, end: params.end })
+    }
+  }, [])
 
   // 图表点击事件
   const onChartClick = useCallback((params: any) => {
@@ -341,9 +394,23 @@ function App() {
         setSelectedYear(year)
         setView('month')
         setMetric('both')
+        setVisibleRange({ start: 0, end: 100 }) // 重置范围
       }
     }
   }, [view, processedData.yearlyData])
+
+  // 切换视图时重置范围
+  const handleViewChange = (newView: TimeView) => {
+    setView(newView)
+    setVisibleRange({ start: 0, end: 100 })
+    if (newView === 'year') {
+      setSelectedYear(null)
+    }
+  }
+
+  const handleMetricChange = (newMetric: ChartMetric) => {
+    setMetric(newMetric)
+  }
 
   const getStats = () => {
     if (!m2Data) return null
@@ -448,13 +515,13 @@ function App() {
               <span className="text-slate-400 text-sm">时间维度:</span>
               <div className="flex bg-slate-700 rounded p-0.5">
                 <button
-                  onClick={() => { setView('year'); setSelectedYear(null); }}
+                  onClick={() => handleViewChange('year')}
                   className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'year' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 >
                   年度
                 </button>
                 <button
-                  onClick={() => setView('month')}
+                  onClick={() => handleViewChange('month')}
                   className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'month' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 >
                   月度
@@ -468,19 +535,19 @@ function App() {
                 <span className="text-slate-400 text-sm">显示指标:</span>
                 <div className="flex bg-slate-700 rounded p-0.5">
                   <button
-                    onClick={() => setMetric('both')}
+                    onClick={() => handleMetricChange('both')}
                     className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     同比+环比
                   </button>
                   <button
-                    onClick={() => setMetric('yoy')}
+                    onClick={() => handleMetricChange('yoy')}
                     className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     仅同比
                   </button>
                   <button
-                    onClick={() => setMetric('mom')}
+                    onClick={() => handleMetricChange('mom')}
                     className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
                   >
                     仅环比
@@ -492,7 +559,7 @@ function App() {
             {/* 年份选择 - 月度视图且有选中年份时显示 */}
             {view === 'month' && selectedYear && (
               <button
-                onClick={() => setSelectedYear(null)}
+                onClick={() => { setSelectedYear(null); setVisibleRange({ start: 0, end: 100 }); }}
                 className="text-sm text-purple-400 hover:text-purple-300"
               >
                 ← 返回全部月度
@@ -503,7 +570,7 @@ function App() {
           {/* 提示信息 */}
           <div className="text-slate-500 text-sm mt-3">
             {view === 'year' && '💡 点击柱子可查看该年月度数据'}
-            {view === 'month' && !selectedYear && '💡 拖动滑块查看不同时期，Y轴会根据数据自动调整'}
+            {view === 'month' && !selectedYear && '💡 拖动滑块时Y轴会根据可见数据自动调整'}
             {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
           </div>
         </div>
@@ -511,10 +578,14 @@ function App() {
         {/* 图表 */}
         <div className="bg-slate-800 rounded-lg p-4 mb-4">
           <ReactECharts 
+            ref={(e) => { chartInstanceRef.current = e }}
             option={getChartOption()} 
             style={{ height: '480px' }}
             opts={{ renderer: 'canvas' }}
-            onEvents={{ click: onChartClick }}
+            onEvents={{ 
+              click: onChartClick,
+              dataZoom: onDataZoom
+            }}
             notMerge={true}
           />
         </div>
