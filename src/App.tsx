@@ -5,7 +5,8 @@ import type { EChartsOption } from 'echarts'
 interface M2DataPoint {
   date: string
   value: number
-  mom?: number
+  mom: number
+  balance?: number
 }
 
 interface M2Data {
@@ -21,15 +22,12 @@ interface M2Data {
 type TimeView = 'year' | 'month'
 type ChartMetric = 'both' | 'yoy' | 'mom'
 
-// 节流函数
-function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
-  let lastCall = 0
+// 防抖函数
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let timer: ReturnType<typeof setTimeout> | null = null
   return ((...args: any[]) => {
-    const now = Date.now()
-    if (now - lastCall >= delay) {
-      lastCall = now
-      fn(...args)
-    }
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), delay)
   }) as T
 }
 
@@ -40,10 +38,7 @@ function App() {
   const [view, setView] = useState<TimeView>('year')
   const [metric, setMetric] = useState<ChartMetric>('both')
   const [selectedYear, setSelectedYear] = useState<string | null>(null)
-  
-  // 用于跟踪当前可见的数据范围
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 })
-  const chartInstanceRef = useRef<any>(null)
 
   useEffect(() => {
     fetchM2Data()
@@ -54,13 +49,6 @@ function App() {
       const response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/m2.json')
       if (!response.ok) throw new Error('数据获取失败')
       const data = await response.json()
-      
-      data.data = data.data.map((item: M2DataPoint, index: number, arr: M2DataPoint[]) => {
-        if (index === 0) return { ...item, mom: 0 }
-        const mom = Number((item.value - arr[index - 1].value).toFixed(2))
-        return { ...item, mom }
-      })
-      
       setM2Data(data)
     } catch (e) {
       setError('数据加载失败，请刷新重试')
@@ -105,7 +93,6 @@ function App() {
     return { yearlyData, years, monthlyByYear }
   }, [m2Data])
 
-  // 获取当前显示的数据
   const getDisplayData = useCallback(() => {
     if (!m2Data) return null
 
@@ -133,15 +120,12 @@ function App() {
     }
   }, [m2Data, view, selectedYear, processedData])
 
-  // 根据可见范围计算Y轴范围
-  const calculateAxisRange = useCallback((data: number[], padding: number = 0.1) => {
+  const calculateAxisRange = useCallback((data: number[], padding: number = 0.15) => {
     if (data.length === 0) return { min: 0, max: 10 }
-    
     const min = Math.min(...data)
     const max = Math.max(...data)
-    const range = max - min
+    const range = max - min || 1
     const pad = range * padding
-    
     return {
       min: Math.floor((min - pad) * 10) / 10,
       max: Math.ceil((max + pad) * 10) / 10
@@ -152,7 +136,6 @@ function App() {
     const displayData = getDisplayData()
     if (!displayData) return {}
 
-    // 计算当前可见范围的数据索引
     const totalLength = displayData.dates.length
     const startIdx = Math.floor((visibleRange.start / 100) * totalLength)
     const endIdx = Math.ceil((visibleRange.end / 100) * totalLength)
@@ -160,7 +143,6 @@ function App() {
     const visibleYoy = displayData.yoy.slice(startIdx, endIdx)
     const visibleMom = displayData.mom.slice(startIdx, endIdx)
 
-    // 根据可见数据计算Y轴范围
     const yoyRange = calculateAxisRange(visibleYoy.filter(v => v !== undefined) as number[])
     const momRange = calculateAxisRange(visibleMom.filter(v => v !== undefined) as number[])
 
@@ -187,18 +169,21 @@ function App() {
                 <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${d.avg}%</strong></td></tr>
                 <tr><td>最高</td><td style="color:#ef4444">${d.max}%</td></tr>
                 <tr><td>最低</td><td style="color:#22c55e">${d.min}%</td></tr>
-                <tr><td>年末同比</td><td>${d.end}%</td></tr>
               </table>
               <div style="margin-top: 8px; color: #94a3b8; font-size: 12px;">点击查看该年月度数据</div>
             </div>`
           }
         },
-        grid: { top: 70, right: 50, bottom: 70, left: 60 },
+        grid: { top: 70, right: 50, bottom: 90, left: 60 },  // 增加底部空间
         xAxis: {
           type: 'category',
           data: displayData.dates,
           axisLine: { lineStyle: { color: '#475569' } },
-          axisLabel: { color: '#94a3b8', fontSize: 14 },
+          axisLabel: { 
+            color: '#94a3b8', 
+            fontSize: 13,
+            interval: 0  // 显示所有年份标签
+          },
           axisTick: { show: false }
         },
         yAxis: {
@@ -216,7 +201,7 @@ function App() {
             type: 'slider', 
             start: visibleRange.start, 
             end: visibleRange.end, 
-            bottom: 10, 
+            bottom: 20,  // 滑窗位置下移
             height: 28, 
             borderColor: '#475569', 
             backgroundColor: '#1e293b', 
@@ -250,41 +235,36 @@ function App() {
         data: displayData.yoy,
         smooth: true,
         symbol: 'circle',
-        symbolSize: 6,
+        symbolSize: 5,
         lineStyle: { color: '#a855f7', width: 3 },
         itemStyle: { color: '#a855f7' },
         areaStyle: metric === 'yoy' ? {
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168, 85, 247, 0.4)' }, { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }] }
+          color: { 
+            type: 'linear', 
+            x: 0, y: 0, x2: 0, y2: 1, 
+            colorStops: [
+              { offset: 0, color: 'rgba(168, 85, 247, 0.3)' }, 
+              { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }
+            ] 
+          }
         } : undefined
       })
     }
 
     if (metric === 'mom' || metric === 'both') {
-      // 为每个点设置颜色，正值为绿色，负值为红色
-      const momDataWithColor = displayData.mom.map((v) => ({
-        value: v,
-        itemStyle: { color: v >= 0 ? '#22c55e' : '#ef4444' }
-      }))
-      
       series.push({
-        name: '环比变化',
-        type: 'line',
+        name: '环比增速',
+        type: 'bar',
         yAxisIndex: metric === 'both' ? 1 : 0,
-        data: momDataWithColor,
-        smooth: false,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { 
-          color: '#94a3b8',
-          width: 2 
+        data: displayData.mom,
+        barMaxWidth: 12,
+        itemStyle: {
+          color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+          borderRadius: [2, 2, 0, 0]
         },
-        // 添加markLine显示零线
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { color: '#475569', type: 'dashed' },
-          data: [{ yAxis: 0 }]
-        }
+        // 渐进渲染优化
+        progressive: 200,
+        progressiveThreshold: 300
       })
     }
 
@@ -305,7 +285,7 @@ function App() {
     if (metric === 'mom') {
       yAxisConfig.push({
         type: 'value',
-        name: '环比 pp',
+        name: '环比 %',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -319,7 +299,7 @@ function App() {
     if (metric === 'both') {
       yAxisConfig.push({
         type: 'value',
-        name: '环比 pp',
+        name: '环比 %',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -350,8 +330,7 @@ function App() {
           let html = `<div style="padding: 10px;"><div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${params[0].name}</div>`
           params.forEach((p: any) => {
             const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
-            const unit = p.seriesName === '同比增速' ? '%' : 'pp'
-            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}${unit}</div>`
+            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}%</div>`
           })
           html += '</div>'
           return html
@@ -359,14 +338,14 @@ function App() {
       },
       legend: {
         show: metric === 'both',
-        data: metric === 'both' ? ['同比增速', '环比变化'] : [],
+        data: metric === 'both' ? ['同比增速', '环比增速'] : [],
         top: 40,
         textStyle: { color: '#94a3b8', fontSize: 14 }
       },
       grid: { 
         top: metric === 'both' ? 70 : 60, 
         right: metric === 'both' ? 60 : 50, 
-        bottom: 70, 
+        bottom: 90,  // 增加底部空间
         left: 60 
       },
       xAxis: {
@@ -375,8 +354,9 @@ function App() {
         axisLine: { lineStyle: { color: '#475569' } },
         axisLabel: { 
           color: '#94a3b8', 
-          fontSize: 13, 
-          rotate: displayData.dates.length > 24 ? 45 : 0 
+          fontSize: 12, 
+          rotate: displayData.dates.length > 24 ? 45 : 0,
+          interval: 'auto'
         },
         axisTick: { show: false }
       },
@@ -386,12 +366,13 @@ function App() {
           type: 'slider', 
           start: visibleRange.start,
           end: visibleRange.end, 
-          bottom: 10, 
+          bottom: 20,  // 滑窗位置下移
           height: 28,
           borderColor: '#475569', 
           backgroundColor: '#1e293b', 
           fillerColor: 'rgba(168, 85, 247, 0.2)', 
-          textStyle: { color: '#94a3b8', fontSize: 12 }
+          textStyle: { color: '#94a3b8', fontSize: 12 },
+          zoomLock: false
         },
         { 
           type: 'inside', 
@@ -403,20 +384,22 @@ function App() {
     }
   }, [view, metric, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
 
-  // 处理 dataZoom 事件 - 使用节流减少更新频率
-  const onDataZoom = useCallback(
-    throttle((params: any) => {
-      if (params.batch) {
-        const { start, end } = params.batch[0]
-        setVisibleRange({ start, end })
-      } else if (params.start !== undefined && params.end !== undefined) {
-        setVisibleRange({ start: params.start, end: params.end })
-      }
-    }, 50), // 50ms节流
-    []
-  )
+  // 使用防抖处理 dataZoom 事件
+  const debouncedSetVisibleRange = useRef(
+    debounce((start: number, end: number) => {
+      setVisibleRange({ start, end })
+    }, 30)
+  ).current
 
-  // 图表点击事件
+  const onDataZoom = useCallback((params: any) => {
+    if (params.batch) {
+      const { start, end } = params.batch[0]
+      debouncedSetVisibleRange(start, end)
+    } else if (params.start !== undefined && params.end !== undefined) {
+      debouncedSetVisibleRange(params.start, params.end)
+    }
+  }, [debouncedSetVisibleRange])
+
   const onChartClick = useCallback((params: any) => {
     if (view === 'year' && params.componentType === 'series' && params.seriesType === 'bar') {
       const year = processedData.yearlyData[params.dataIndex]?.year
@@ -424,22 +407,17 @@ function App() {
         setSelectedYear(year)
         setView('month')
         setMetric('both')
-        setVisibleRange({ start: 0, end: 100 }) // 重置范围
+        setVisibleRange({ start: 0, end: 100 })
       }
     }
   }, [view, processedData.yearlyData])
 
-  // 切换视图时重置范围
   const handleViewChange = (newView: TimeView) => {
     setView(newView)
     setVisibleRange({ start: 0, end: 100 })
     if (newView === 'year') {
       setSelectedYear(null)
     }
-  }
-
-  const handleMetricChange = (newMetric: ChartMetric) => {
-    setMetric(newMetric)
   }
 
   const getStats = () => {
@@ -471,21 +449,17 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
-      {/* 顶部标题栏 */}
       <header className="bg-slate-800 border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🇨🇳</span>
             <h1 className="text-lg font-bold">中国宏观经济数据看板</h1>
           </div>
-          <div className="text-sm text-slate-400">
-            数据更新: {m2Data.updateTime}
-          </div>
+          <div className="text-sm text-slate-400">数据更新: {m2Data.updateTime}</div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-4">
-        {/* 指标标题 */}
         <div className="bg-slate-800 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -495,18 +469,10 @@ function App() {
                 <p className="text-slate-400 text-sm">数据来源：中国人民银行 | 1991.01 - 2026.02 ({stats.count}个月)</p>
               </div>
             </div>
-            <a 
-              href="https://github.com/ZZZZZZZZeng/china-macro-data" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-sm text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 rounded"
-            >
-              📊 数据源
-            </a>
+            <a href="https://github.com/ZZZZZZZZeng/china-macro-data" target="_blank" rel="noopener noreferrer" className="text-sm text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 rounded">📊 数据源</a>
           </div>
         </div>
 
-        {/* 核心指标卡片 */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           <div className="bg-slate-800 rounded-lg p-3">
             <div className="text-slate-400 text-xs mb-1">最新同比</div>
@@ -514,9 +480,9 @@ function App() {
             <div className="text-slate-500 text-xs">2026年2月</div>
           </div>
           <div className="bg-slate-800 rounded-lg p-3">
-            <div className="text-slate-400 text-xs mb-1">环比变化</div>
+            <div className="text-slate-400 text-xs mb-1">最新环比</div>
             <div className={`text-2xl font-bold ${stats.latestMom! >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}pp
+              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}%
             </div>
             <div className="text-slate-500 text-xs">较上月</div>
           </div>
@@ -537,100 +503,58 @@ function App() {
           </div>
         </div>
 
-        {/* 图表控制面板 */}
         <div className="bg-slate-800 rounded-lg p-4 mb-4">
           <div className="flex flex-wrap items-center gap-6">
-            {/* 时间维度 */}
             <div className="flex items-center gap-2">
               <span className="text-slate-400 text-sm">时间维度:</span>
               <div className="flex bg-slate-700 rounded p-0.5">
-                <button
-                  onClick={() => handleViewChange('year')}
-                  className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'year' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                >
-                  年度
-                </button>
-                <button
-                  onClick={() => handleViewChange('month')}
-                  className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'month' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                >
-                  月度
-                </button>
+                <button onClick={() => handleViewChange('year')} className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'year' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>年度</button>
+                <button onClick={() => handleViewChange('month')} className={`px-4 py-1.5 text-sm rounded transition-colors ${view === 'month' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>月度</button>
               </div>
             </div>
 
-            {/* 显示指标 - 仅月度视图可用 */}
             {view === 'month' && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-400 text-sm">显示指标:</span>
                 <div className="flex bg-slate-700 rounded p-0.5">
-                  <button
-                    onClick={() => handleMetricChange('both')}
-                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    同比+环比
-                  </button>
-                  <button
-                    onClick={() => handleMetricChange('yoy')}
-                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    仅同比
-                  </button>
-                  <button
-                    onClick={() => handleMetricChange('mom')}
-                    className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    仅环比
-                  </button>
+                  <button onClick={() => setMetric('both')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>同比+环比</button>
+                  <button onClick={() => setMetric('yoy')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>仅同比</button>
+                  <button onClick={() => setMetric('mom')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>仅环比</button>
                 </div>
               </div>
             )}
 
-            {/* 年份选择 - 月度视图且有选中年份时显示 */}
             {view === 'month' && selectedYear && (
-              <button
-                onClick={() => { setSelectedYear(null); setVisibleRange({ start: 0, end: 100 }); }}
-                className="text-sm text-purple-400 hover:text-purple-300"
-              >
-                ← 返回全部月度
-              </button>
+              <button onClick={() => { setSelectedYear(null); setVisibleRange({ start: 0, end: 100 }); }} className="text-sm text-purple-400 hover:text-purple-300">← 返回全部月度</button>
             )}
           </div>
           
-          {/* 提示信息 */}
           <div className="text-slate-500 text-sm mt-3">
             {view === 'year' && '💡 点击柱子可查看该年月度数据'}
-            {view === 'month' && !selectedYear && '💡 拖动滑块时Y轴会根据可见数据自动调整'}
+            {view === 'month' && !selectedYear && '💡 环比增速 = (本月M2余额 - 上月M2余额) / 上月M2余额 × 100%'}
             {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
           </div>
         </div>
 
-        {/* 图表 */}
         <div className="bg-slate-800 rounded-lg p-4 mb-4">
           <ReactECharts 
-            ref={(e) => { chartInstanceRef.current = e }}
             option={getChartOption()} 
             style={{ height: '480px' }}
             opts={{ renderer: 'canvas' }}
-            onEvents={{ 
-              click: onChartClick,
-              dataZoom: onDataZoom
-            }}
+            onEvents={{ click: onChartClick, dataZoom: onDataZoom }}
             notMerge={true}
-            lazyUpdate={false}
           />
         </div>
 
-        {/* 说明 */}
         <div className="bg-slate-800 rounded-lg p-4">
           <div className="flex gap-8 text-sm text-slate-400">
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-purple-500"></span>
-              <span>同比增速: 与去年同月比较</span>
+              <span>同比增速: (本月M2 - 去年同月M2) / 去年同月M2 × 100%</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-green-500"></span>
-              <span>环比变化: 与上月比较 (单位: pp即百分点)</span>
+              <span className="w-3 h-3 rounded bg-green-500"></span>
+              <span>环比增速: (本月M2 - 上月M2) / 上月M2 × 100%</span>
             </div>
           </div>
         </div>
