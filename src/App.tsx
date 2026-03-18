@@ -21,6 +21,18 @@ interface M2Data {
 type TimeView = 'year' | 'month'
 type ChartMetric = 'both' | 'yoy' | 'mom'
 
+// 节流函数
+function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let lastCall = 0
+  return ((...args: any[]) => {
+    const now = Date.now()
+    if (now - lastCall >= delay) {
+      lastCall = now
+      fn(...args)
+    }
+  }) as T
+}
+
 function App() {
   const [loading, setLoading] = useState(true)
   const [m2Data, setM2Data] = useState<M2Data | null>(null)
@@ -248,15 +260,30 @@ function App() {
     }
 
     if (metric === 'mom' || metric === 'both') {
+      // 为每个点设置颜色，正值为绿色，负值为红色
+      const momDataWithColor = displayData.mom.map((v) => ({
+        value: v,
+        itemStyle: { color: v >= 0 ? '#22c55e' : '#ef4444' }
+      }))
+      
       series.push({
         name: '环比变化',
-        type: 'bar',
+        type: 'line',
         yAxisIndex: metric === 'both' ? 1 : 0,
-        data: displayData.mom,
-        barMaxWidth: metric === 'both' ? 10 : 20,
-        itemStyle: {
-          color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
-          borderRadius: [3, 3, 0, 0]
+        data: momDataWithColor,
+        smooth: false,
+        symbol: 'circle',
+        symbolSize: 5,
+        lineStyle: { 
+          color: '#94a3b8',
+          width: 2 
+        },
+        // 添加markLine显示零线
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#475569', type: 'dashed' },
+          data: [{ yAxis: 0 }]
         }
       })
     }
@@ -376,15 +403,18 @@ function App() {
     }
   }, [view, metric, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
 
-  // 处理 dataZoom 事件
-  const onDataZoom = useCallback((params: any) => {
-    if (params.batch) {
-      const { start, end } = params.batch[0]
-      setVisibleRange({ start, end })
-    } else if (params.start !== undefined && params.end !== undefined) {
-      setVisibleRange({ start: params.start, end: params.end })
-    }
-  }, [])
+  // 处理 dataZoom 事件 - 使用节流减少更新频率
+  const onDataZoom = useCallback(
+    throttle((params: any) => {
+      if (params.batch) {
+        const { start, end } = params.batch[0]
+        setVisibleRange({ start, end })
+      } else if (params.start !== undefined && params.end !== undefined) {
+        setVisibleRange({ start: params.start, end: params.end })
+      }
+    }, 50), // 50ms节流
+    []
+  )
 
   // 图表点击事件
   const onChartClick = useCallback((params: any) => {
@@ -587,6 +617,7 @@ function App() {
               dataZoom: onDataZoom
             }}
             notMerge={true}
+            lazyUpdate={false}
           />
         </div>
 
