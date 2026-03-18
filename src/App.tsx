@@ -273,7 +273,7 @@ function App() {
     if (metric === 'mom') {
       yAxisConfig.push({
         type: 'value',
-        name: '变化 pp',
+        name: '环比 %',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -287,7 +287,7 @@ function App() {
     if (metric === 'both') {
       yAxisConfig.push({
         type: 'value',
-        name: '变化 pp',
+        name: '环比 %',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -316,8 +316,7 @@ function App() {
           let html = `<div style="padding: 10px;"><div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${params[0].name}</div>`
           params.forEach((p: any) => {
             const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
-            const unit = p.seriesName === '同比增速' ? '%' : 'pp'
-            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}${unit}</div>`
+            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}%</div>`
           })
           html += '</div>'
           return html
@@ -443,7 +442,7 @@ function App() {
           <div className="bg-slate-800 rounded-lg p-3">
             <div className="text-slate-400 text-xs mb-1">环比变化</div>
             <div className={`text-2xl font-bold ${stats.latestMom! >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}pp
+              {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}%
             </div>
             <div className="text-slate-500 text-xs">较上月</div>
           </div>
@@ -492,7 +491,7 @@ function App() {
           
           <div className="text-slate-500 text-sm mt-3">
             {view === 'year' && '💡 点击柱子可查看该年月度数据'}
-            {view === 'month' && !selectedYear && '💡 环比变化 = 本月同比增速 - 上月同比增速（单位：pp百分点）'}
+            {view === 'month' && !selectedYear && '💡 环比变化 = 本月同比增速 - 上月同比增速'}
             {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
           </div>
         </div>
@@ -521,7 +520,7 @@ function App() {
               <span className="w-3 h-3 rounded bg-green-500 mt-1"></span>
               <div>
                 <span className="text-white">环比变化</span>：同比增速的月度变化，反映短期动能
-                <div className="text-xs text-slate-500 mt-1">公式：本月同比增速 - 上月同比增速（单位：pp）</div>
+                <div className="text-xs text-slate-500 mt-1">公式：本月同比增速 - 上月同比增速</div>
               </div>
             </div>
           </div>
