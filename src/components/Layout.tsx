@@ -4,20 +4,57 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       <header className="bg-slate-800 border-b border-slate-700">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🇨🇳</span>
-              <h1 className="text-lg font-bold">中国宏观经济数据看板</h1>
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          {/* 桌面端：标题和导航在同一行 */}
+          <div className="hidden md:flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🇨🇳</span>
+                <h1 className="text-lg font-bold">中国宏观经济数据看板</h1>
+              </div>
+              <nav className="flex items-center gap-1">
+                <NavLink 
+                  to="/m2" 
+                  className={({ isActive }) => 
+                    `px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                      isActive 
+                        ? 'bg-purple-600 text-white' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                    }`
+                  }
+                >
+                  💰 M2
+                </NavLink>
+                <NavLink 
+                  to="/gdp" 
+                  className={({ isActive }) => 
+                    `px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                      isActive 
+                        ? 'bg-blue-600 text-white' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                    }`
+                  }
+                >
+                  📊 GDP
+                </NavLink>
+              </nav>
             </div>
-            <nav className="flex items-center gap-1">
+          </div>
+          
+          {/* 手机端：标题一行，导航一行 */}
+          <div className="md:hidden">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="text-xl">🇨🇳</span>
+              <h1 className="text-base font-bold">宏观经济数据看板</h1>
+            </div>
+            <nav className="flex items-center justify-center gap-2">
               <NavLink 
                 to="/m2" 
                 className={({ isActive }) => 
-                  `px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                  `px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive 
                       ? 'bg-purple-600 text-white' 
-                      : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                      : 'bg-slate-700 text-slate-300 hover:text-white'
                   }`
                 }
               >
@@ -26,10 +63,10 @@ export default function Layout() {
               <NavLink 
                 to="/gdp" 
                 className={({ isActive }) => 
-                  `px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                  `px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive 
                       ? 'bg-blue-600 text-white' 
-                      : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                      : 'bg-slate-700 text-slate-300 hover:text-white'
                   }`
                 }
               >
