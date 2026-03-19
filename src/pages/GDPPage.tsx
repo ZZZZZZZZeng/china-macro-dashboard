@@ -202,7 +202,7 @@ export default function GDPPage() {
           type: 'category',
           data: displayData.dates,
           axisLine: { lineStyle: { color: '#475569' } },
-          axisLabel: { color: '#94a3b8', fontSize: 13, interval: 0 },
+          axisLabel: { color: '#94a3b8', fontSize: 13, rotate: 45, interval: 0 },
           axisTick: { show: false }
         },
         yAxis: {
