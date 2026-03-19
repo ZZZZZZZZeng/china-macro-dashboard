@@ -20,7 +20,6 @@ interface M2Data {
 }
 
 type TimeView = 'year' | 'month'
-type ChartMetric = 'both' | 'yoy' | 'mom'
 
 // 格式化数字，保留两位小数
 const fmt = (n: number) => n.toFixed(2)
@@ -38,7 +37,6 @@ export default function M2Page() {
   const [m2Data, setM2Data] = useState<M2Data | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<TimeView>('year')
-  const [metric, setMetric] = useState<ChartMetric>('both')
   const [selectedYear, setSelectedYear] = useState<string | null>(null)
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 })
 
@@ -218,7 +216,7 @@ export default function M2Page() {
           data: displayData.yoy,
           barMaxWidth: 50,
           itemStyle: {
-            color: '#a855f7',  // 统一紫色，避免歧义
+            color: '#a855f7',
             borderRadius: [6, 6, 0, 0]
           },
           emphasis: { itemStyle: { shadowBlur: 15, shadowColor: 'rgba(168, 85, 247, 0.5)' } }
@@ -226,84 +224,7 @@ export default function M2Page() {
       }
     }
 
-    const series: any[] = []
-    const yAxisConfig: any[] = []
-
-    if (metric === 'yoy' || metric === 'both') {
-      series.push({
-        name: '同比增速',
-        type: 'line',
-        yAxisIndex: 0,
-        data: displayData.yoy,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { color: '#a855f7', width: 3 },
-        itemStyle: { color: '#a855f7' },
-        areaStyle: metric === 'yoy' ? {
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168, 85, 247, 0.3)' }, { offset: 1, color: 'rgba(168, 85, 247, 0.0)' }] }
-        } : undefined
-      })
-    }
-
-    if (metric === 'mom' || metric === 'both') {
-      series.push({
-        name: '环比变化',
-        type: 'bar',
-        yAxisIndex: metric === 'both' ? 1 : 0,
-        data: displayData.mom,
-        barMaxWidth: 12,
-        itemStyle: {
-          color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
-          borderRadius: [2, 2, 0, 0]
-        },
-        progressive: 200,
-        progressiveThreshold: 300
-      })
-    }
-
-    if (metric === 'yoy' || metric === 'both') {
-      yAxisConfig.push({
-        type: 'value',
-        name: '同比 %',
-        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: yoyRange.min,
-        max: yoyRange.max,
-        position: 'left',
-        axisLine: { show: true, lineStyle: { color: '#a855f7' } },
-        splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
-        axisLabel: { color: '#94a3b8', fontSize: 14 }
-      })
-    }
-
-    if (metric === 'mom') {
-      yAxisConfig.push({
-        type: 'value',
-        name: '环比 %',
-        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: momRange.min,
-        max: momRange.max,
-        position: 'left',
-        axisLine: { show: true, lineStyle: { color: '#22c55e' } },
-        splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
-        axisLabel: { color: '#94a3b8', fontSize: 14 }
-      })
-    }
-
-    if (metric === 'both') {
-      yAxisConfig.push({
-        type: 'value',
-        name: '环比 pp',
-        nameTextStyle: { color: '#94a3b8', fontSize: 14 },
-        min: momRange.min,
-        max: momRange.max,
-        position: 'right',
-        axisLine: { show: true, lineStyle: { color: '#22c55e' } },
-        splitLine: { show: false },
-        axisLabel: { color: '#94a3b8', fontSize: 14 }
-      })
-    }
-
+    // 月度视图：默认显示同比+环比，legend 可切换
     const titleText = selectedYear ? `M2增速 - ${selectedYear}年月度数据` : 'M2增速 - 月度数据'
 
     return {
@@ -330,12 +251,12 @@ export default function M2Page() {
         }
       },
       legend: {
-        show: metric === 'both',
-        data: metric === 'both' ? ['同比增速', '环比变化'] : [],
+        show: true,
+        data: ['同比增速', '环比变化'],
         top: 40,
         textStyle: { color: '#94a3b8', fontSize: 14 }
       },
-      grid: { top: metric === 'both' ? 70 : 60, right: metric === 'both' ? 60 : 50, bottom: 90, left: 60 },
+      grid: { top: 70, right: 60, bottom: 90, left: 60 },
       xAxis: {
         type: 'category',
         data: displayData.dates,
@@ -343,14 +264,62 @@ export default function M2Page() {
         axisLabel: { color: '#94a3b8', fontSize: 12, rotate: displayData.dates.length > 24 ? 45 : 0, interval: 'auto' },
         axisTick: { show: false }
       },
-      yAxis: yAxisConfig,
+      yAxis: [
+        {
+          type: 'value',
+          name: '同比 %',
+          nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+          min: yoyRange.min,
+          max: yoyRange.max,
+          position: 'left',
+          axisLine: { show: true, lineStyle: { color: '#a855f7' } },
+          splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
+          axisLabel: { color: '#94a3b8', fontSize: 14 }
+        },
+        {
+          type: 'value',
+          name: '环比 pp',
+          nameTextStyle: { color: '#94a3b8', fontSize: 14 },
+          min: momRange.min,
+          max: momRange.max,
+          position: 'right',
+          axisLine: { show: true, lineStyle: { color: '#22c55e' } },
+          splitLine: { show: false },
+          axisLabel: { color: '#94a3b8', fontSize: 14 }
+        }
+      ],
       dataZoom: [
         { type: 'slider', start: visibleRange.start, end: visibleRange.end, bottom: 20, height: 28, borderColor: '#475569', backgroundColor: '#1e293b', fillerColor: 'rgba(168, 85, 247, 0.2)', textStyle: { color: '#94a3b8', fontSize: 12 }, zoomLock: false },
         { type: 'inside', start: visibleRange.start, end: visibleRange.end }
       ],
-      series
+      series: [
+        {
+          name: '同比增速',
+          type: 'line',
+          yAxisIndex: 0,
+          data: displayData.yoy,
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 5,
+          lineStyle: { color: '#a855f7', width: 3 },
+          itemStyle: { color: '#a855f7' }
+        },
+        {
+          name: '环比变化',
+          type: 'bar',
+          yAxisIndex: 1,
+          data: displayData.mom,
+          barMaxWidth: 12,
+          itemStyle: {
+            color: (params: any) => params.value >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+            borderRadius: [2, 2, 0, 0]
+          },
+          progressive: 200,
+          progressiveThreshold: 300
+        }
+      ]
     }
-  }, [view, metric, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
+  }, [view, selectedYear, processedData, visibleRange, getDisplayData, calculateAxisRange])
 
   const debouncedSetVisibleRange = useRef(
     debounce((start: number, end: number) => {
@@ -373,7 +342,6 @@ export default function M2Page() {
       if (year) {
         setSelectedYear(year)
         setView('month')
-        setMetric('both')
         setVisibleRange({ start: 0, end: 100 })
       }
     }
@@ -469,17 +437,6 @@ export default function M2Page() {
             </div>
           </div>
 
-          {view === 'month' && (
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 text-sm">显示指标:</span>
-              <div className="flex bg-slate-700 rounded p-0.5">
-                <button onClick={() => setMetric('both')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'both' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>同比+环比</button>
-                <button onClick={() => setMetric('yoy')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'yoy' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>仅同比</button>
-                <button onClick={() => setMetric('mom')} className={`px-3 py-1.5 text-sm rounded transition-colors ${metric === 'mom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}>仅环比</button>
-              </div>
-            </div>
-          )}
-
           {view === 'month' && selectedYear && (
             <button onClick={() => { setSelectedYear(null); setVisibleRange({ start: 0, end: 100 }); }} className="text-sm text-purple-400 hover:text-purple-300">← 返回全部月度</button>
           )}
@@ -487,7 +444,7 @@ export default function M2Page() {
         
         <div className="text-slate-500 text-sm mt-3">
           {view === 'year' && '💡 点击柱子可查看该年月度数据'}
-          {view === 'month' && !selectedYear && '💡 环比变化 = 本月同比增速 - 上月同比增速'}
+          {view === 'month' && !selectedYear && '💡 点击图例可切换显示/隐藏指标'}
           {view === 'month' && selectedYear && `💡 正在显示 ${selectedYear} 年的月度数据`}
         </div>
       </div>
