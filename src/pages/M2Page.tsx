@@ -45,7 +45,12 @@ export default function M2Page() {
 
   const fetchM2Data = async () => {
     try {
-      const response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/m2.json')
+      // 优先从本地加载，避免跨域和网络问题
+      let response = await fetch('/data/m2.json')
+      if (!response.ok) {
+        // 本地加载失败，尝试远程
+        response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/m2.json')
+      }
       if (!response.ok) throw new Error('数据获取失败')
       const data = await response.json()
       

@@ -45,7 +45,7 @@ export default function GDPPage() {
 
   const fetchGDPData = async () => {
     try {
-      const response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/gdp.json')
+      const response = await fetch('/data/gdp.json')
       if (!response.ok) throw new Error('数据获取失败')
       const data = await response.json()
       
