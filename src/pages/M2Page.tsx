@@ -22,6 +22,9 @@ interface M2Data {
 type TimeView = 'year' | 'month'
 type ChartMetric = 'both' | 'yoy' | 'mom'
 
+// 格式化数字，保留两位小数
+const fmt = (n: number) => n.toFixed(2)
+
 function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   let timer: ReturnType<typeof setTimeout> | null = null
   return ((...args: any[]) => {
@@ -45,19 +48,15 @@ export default function M2Page() {
 
   const fetchM2Data = async () => {
     try {
-      // 优先从本地加载，避免跨域和网络问题
       let response = await fetch('/data/m2.json')
       if (!response.ok) {
-        // 本地加载失败，尝试远程
         response = await fetch('https://raw.githubusercontent.com/ZZZZZZZZeng/china-macro-data/main/data/m2.json')
       }
       if (!response.ok) throw new Error('数据获取失败')
       const data = await response.json()
       
       data.data = data.data.map((item: M2DataPoint, index: number) => {
-        if (index === 0) {
-          return { ...item, mom: 0 }
-        }
+        if (index === 0) return { ...item, mom: 0 }
         const prevValue = data.data[index - 1].value
         const mom = Number((item.value - prevValue).toFixed(2))
         return { ...item, mom }
@@ -96,12 +95,17 @@ export default function M2Page() {
       const avg = data.values.reduce((a, b) => a + b, 0) / data.values.length
       const max = Math.max(...data.values)
       const min = Math.min(...data.values)
-      const start = data.values[0]
-      const end = data.values[data.values.length - 1]
-      const yearChange = Number((end - start).toFixed(2))
       const momSum = data.momValues.reduce((a, b) => a + b, 0)
       
-      return { year, avg: Number(avg.toFixed(2)), max, min, start, end, yearChange, momSum: Number(momSum.toFixed(2)) }
+      return { 
+        year, 
+        avg: Number(avg.toFixed(2)), 
+        max, 
+        min, 
+        momSum: Number(momSum.toFixed(2)),
+        maxDate: data.dates[data.values.indexOf(max)],
+        minDate: data.dates[data.values.indexOf(min)]
+      }
     })
 
     return { yearlyData, years, monthlyByYear }
@@ -179,9 +183,9 @@ export default function M2Page() {
             return `<div style="padding: 10px;">
               <div style="font-weight: bold; margin-bottom: 8px; font-size: 16px;">${d.year}年</div>
               <table style="font-size: 14px;">
-                <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${d.avg}%</strong></td></tr>
-                <tr><td>最高</td><td style="color:#ef4444">${d.max}%</td></tr>
-                <tr><td>最低</td><td style="color:#22c55e">${d.min}%</td></tr>
+                <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${fmt(d.avg)}%</strong></td></tr>
+                <tr><td>最高</td><td style="color:#ef4444">${fmt(d.max)}%</td></tr>
+                <tr><td>最低</td><td style="color:#22c55e">${fmt(d.min)}%</td></tr>
               </table>
               <div style="margin-top: 8px; color: #94a3b8; font-size: 12px;">点击查看该年月度数据</div>
             </div>`
@@ -214,7 +218,7 @@ export default function M2Page() {
           data: displayData.yoy,
           barMaxWidth: 50,
           itemStyle: {
-            color: (params: any) => processedData.yearlyData[params.dataIndex]?.yearChange >= 0 ? '#22c55e' : '#ef4444',
+            color: '#a855f7',  // 统一紫色，避免歧义
             borderRadius: [6, 6, 0, 0]
           },
           emphasis: { itemStyle: { shadowBlur: 15, shadowColor: 'rgba(168, 85, 247, 0.5)' } }
@@ -289,7 +293,7 @@ export default function M2Page() {
     if (metric === 'both') {
       yAxisConfig.push({
         type: 'value',
-        name: '环比 %',
+        name: '环比 pp',
         nameTextStyle: { color: '#94a3b8', fontSize: 14 },
         min: momRange.min,
         max: momRange.max,
@@ -318,7 +322,8 @@ export default function M2Page() {
           let html = `<div style="padding: 10px;"><div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${params[0].name}</div>`
           params.forEach((p: any) => {
             const color = p.seriesName === '同比增速' ? '#a855f7' : (p.value >= 0 ? '#22c55e' : '#ef4444')
-            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${p.value}%</div>`
+            const unit = p.seriesName === '同比增速' ? '%' : 'pp'
+            html += `<div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>${p.seriesName}: ${fmt(p.value)}${unit}</div>`
           })
           html += '</div>'
           return html
@@ -427,24 +432,24 @@ export default function M2Page() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">最新同比</div>
-          <div className="text-2xl font-bold">{stats.latest}%</div>
+          <div className="text-2xl font-bold text-purple-400">{fmt(stats.latest)}%</div>
           <div className="text-slate-500 text-xs">2026年2月</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">环比变化</div>
           <div className={`text-2xl font-bold ${stats.latestMom! >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {stats.latestMom! >= 0 ? '+' : ''}{stats.latestMom}%
+            {stats.latestMom! >= 0 ? '+' : ''}{fmt(stats.latestMom!)}pp
           </div>
           <div className="text-slate-500 text-xs">较上月</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">历史最高</div>
-          <div className="text-2xl font-bold text-red-400">{stats.max}%</div>
+          <div className="text-2xl font-bold text-red-400">{fmt(stats.max)}%</div>
           <div className="text-slate-500 text-xs">{stats.maxDate}</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">历史最低</div>
-          <div className="text-2xl font-bold text-green-400">{stats.min}%</div>
+          <div className="text-2xl font-bold text-green-400">{fmt(stats.min)}%</div>
           <div className="text-slate-500 text-xs">{stats.minDate}</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
@@ -511,7 +516,7 @@ export default function M2Page() {
             <span className="w-3 h-3 rounded bg-green-500 mt-1"></span>
             <div>
               <span className="text-white">环比变化</span>：同比增速的月度变化，反映短期动能
-              <div className="text-xs text-slate-500 mt-1">公式：本月同比增速 - 上月同比增速</div>
+              <div className="text-xs text-slate-500 mt-1">公式：本月同比增速 - 上月同比增速（单位：pp百分点）</div>
             </div>
           </div>
         </div>

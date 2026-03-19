@@ -20,6 +20,9 @@ interface GDPData {
 
 type TimeView = 'year' | 'quarter'
 
+// 格式化数字，保留两位小数
+const fmt = (n: number) => n.toFixed(2)
+
 function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   let timer: ReturnType<typeof setTimeout> | null = null
   return ((...args: any[]) => {
@@ -158,9 +161,9 @@ export default function GDPPage() {
             return `<div style="padding: 10px;">
               <div style="font-weight: bold; margin-bottom: 8px; font-size: 16px;">${d.year}年</div>
               <table style="font-size: 14px;">
-                <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${d.avg}%</strong></td></tr>
-                <tr><td>最高</td><td style="color:#ef4444">${d.max}% (${d.maxQuarter})</td></tr>
-                <tr><td>最低</td><td style="color:#22c55e">${d.min}% (${d.minQuarter})</td></tr>
+                <tr><td style="padding: 3px 12px 3px 0;">年均值</td><td><strong>${fmt(d.avg)}%</strong></td></tr>
+                <tr><td>最高</td><td style="color:#ef4444">${fmt(d.max)}%</td></tr>
+                <tr><td>最低</td><td style="color:#22c55e">${fmt(d.min)}%</td></tr>
                 <tr><td>季度数</td><td>${d.quarters}个季度</td></tr>
               </table>
               <div style="margin-top: 8px; color: #94a3b8; font-size: 12px;">点击查看该年季度数据</div>
@@ -194,7 +197,7 @@ export default function GDPPage() {
           data: displayData.yoy,
           barMaxWidth: 50,
           itemStyle: {
-            color: (params: any) => params.value >= 0 ? '#3b82f6' : '#ef4444',
+            color: '#3b82f6',  // 统一蓝色
             borderRadius: [6, 6, 0, 0]
           },
           emphasis: { itemStyle: { shadowBlur: 15, shadowColor: 'rgba(59, 130, 246, 0.5)' } }
@@ -219,10 +222,9 @@ export default function GDPPage() {
         textStyle: { color: '#e2e8f0', fontSize: 14 },
         formatter: (params: any) => {
           const p = params[0]
-          const color = p.value >= 0 ? '#3b82f6' : '#ef4444'
           return `<div style="padding: 10px;">
             <div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${p.name}</div>
-            <div style="font-size: 14px;"><span style="color:${color}; margin-right: 8px;">●</span>同比增速: ${p.value}%</div>
+            <div style="font-size: 14px;"><span style="color:#3b82f6; margin-right: 8px;">●</span>同比增速: ${fmt(p.value)}%</div>
           </div>`
         }
       },
@@ -362,7 +364,7 @@ export default function GDPPage() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">最新季度同比</div>
-          <div className="text-2xl font-bold text-blue-400">{stats.latest}%</div>
+          <div className="text-2xl font-bold text-blue-400">{fmt(stats.latest)}%</div>
           <div className="text-slate-500 text-xs">{stats.latestDate}</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
@@ -370,7 +372,7 @@ export default function GDPPage() {
           {stats.yoyChange !== null ? (
             <>
               <div className={`text-2xl font-bold ${stats.yoyChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {stats.yoyChange >= 0 ? '+' : ''}{stats.yoyChange}pp
+                {stats.yoyChange >= 0 ? '+' : ''}{fmt(stats.yoyChange)}pp
               </div>
               <div className="text-slate-500 text-xs">vs 去年同期</div>
             </>
@@ -383,17 +385,17 @@ export default function GDPPage() {
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">{stats.latestCompleteYear}年均值</div>
-          <div className="text-2xl font-bold text-blue-400">{stats.latestCompleteYearAvg}%</div>
+          <div className="text-2xl font-bold text-blue-400">{fmt(stats.latestCompleteYearAvg!)}%</div>
           <div className="text-slate-500 text-xs">完整年度数据</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">历史最高</div>
-          <div className="text-2xl font-bold text-red-400">{stats.max}%</div>
+          <div className="text-2xl font-bold text-red-400">{fmt(stats.max)}%</div>
           <div className="text-slate-500 text-xs">{stats.maxDate}</div>
         </div>
         <div className="bg-slate-800 rounded-lg p-3">
           <div className="text-slate-400 text-xs mb-1">历史最低</div>
-          <div className="text-2xl font-bold text-green-400">{stats.min}%</div>
+          <div className="text-2xl font-bold text-green-400">{fmt(stats.min)}%</div>
           <div className="text-slate-500 text-xs">{stats.minDate}</div>
         </div>
       </div>
