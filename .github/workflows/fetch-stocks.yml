@@ -1,0 +1,54 @@
+name: Fetch A-Stock Data
+
+on:
+  schedule:
+    # 每个交易日 9:30, 11:30, 15:00 (北京时间 UTC+8)
+    # UTC 时间: 1:30, 3:30, 7:00
+    - cron: '30 1,3,7 * * 1-5'
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Fetch stock data
+        run: |
+          python scripts/fetch_stocks.py
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git diff --exit-code public/data/stocks.json || echo "has_changes=true" >> $GITHUB_OUTPUT
+      
+      - name: Commit and push if changed
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add public/data/stocks.json
+          git commit -m "data: update stock data $(date '+%Y-%m-%d %H:%M')"
+          git push
+      
+      - name: Summary
+        run: |
+          echo "### 数据更新完成" >> $GITHUB_STEP_SUMMARY
+          echo "时间: $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          if [ -f public/data/stocks.json ]; then
+            COUNT=$(cat public/data/stocks.json | python3 -c "import sys,json; print(json.load(sys.stdin).get('count', 0))")
+            echo "股票数量: $COUNT" >> $GITHUB_STEP_SUMMARY
+          fi
