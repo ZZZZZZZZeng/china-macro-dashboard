@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import M2Page from './pages/M2Page'
 import GDPPage from './pages/GDPPage'
+import GoldOilPage from './pages/GoldOilPage'
 
-type Tab = 'm2' | 'gdp'
+type Tab = 'm2' | 'gdp' | 'gold-oil'
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('m2')
@@ -29,22 +30,32 @@ function App() {
             >
               💰 M2 货币供应量
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('gdp')}
               className={`px-10 py-3 rounded-xl text-base font-bold transition-all ${
-                activeTab === 'gdp' 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' 
+                activeTab === 'gdp'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
                   : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
               }`}
             >
               📊 GDP 国内生产总值
+            </button>
+            <button
+              onClick={() => setActiveTab('gold-oil')}
+              className={`px-10 py-3 rounded-xl text-base font-bold transition-all ${
+                activeTab === 'gold-oil'
+                  ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30'
+                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              }`}
+            >
+              🥇 金油比追踪
             </button>
           </nav>
         </div>
       </header>
       
       <main className="max-w-7xl mx-auto px-4 py-4">
-        {activeTab === 'm2' ? <M2Page /> : <GDPPage />}
+        {activeTab === 'm2' ? <M2Page /> : activeTab === 'gdp' ? <GDPPage /> : <GoldOilPage />}
       </main>
       
       <footer className="border-t border-slate-800 py-4 mt-4">
